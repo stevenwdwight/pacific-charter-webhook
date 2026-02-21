@@ -1,0 +1,12 @@
+{
+  "name": "pacific-charter-webhook",
+  "version": "1.0.0",
+  "description": "Pacific Charter Services - Vapi voice agent webhook",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
