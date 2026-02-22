@@ -395,8 +395,9 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
     }
     
     // Send confirmation email
+    let emailResult = { sent: false, error: 'no email provided' };
     if (customer_email) {
-      sendConfirmationEmail(customer_email, customer_name, finalCode, total, note);
+      emailResult = await sendConfirmationEmail(customer_email, customer_name, finalCode, total, note);
     }
     
     return {
@@ -406,6 +407,8 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
       status: booking.status_name || 'Reserved',
       total: total,
       message: `Booking confirmed! Confirmation code: ${finalCode}. Total: $${total}.`,
+      email_sent: emailResult.sent,
+      email_error: emailResult.error || null,
     };
   }
 
@@ -413,9 +416,17 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
 }
 
 // --- Booking Confirmation Email ---
-function sendConfirmationEmail(email, name, code, total, note) {
-  console.log(`Sending confirmation email to ${email} for booking ${code}...`);
+async function sendConfirmationEmail(email, name, code, total, note) {
+  console.log(`[EMAIL] Attempting to send to ${email} for booking ${code}...`);
   
+  // Verify transporter works
+  try {
+    await emailTransporter.verify();
+    console.log('[EMAIL] SMTP connection verified');
+  } catch (verifyErr) {
+    console.error('[EMAIL] SMTP verify FAILED:', verifyErr.message);
+  }
+
   const mailOptions = {
     from: '"Pacific Charter Services" <sdwight2010@gmail.com>',
     to: email,
@@ -460,13 +471,15 @@ Pacific Charter Services
 pacificcharterservices.com`
   };
 
-  emailTransporter.sendMail(mailOptions, (err, info) => {
-    if (err) {
-      console.error('Email send error:', err.message);
-    } else {
-      console.log(`Confirmation email sent to ${email} for booking ${code}`);
-    }
-  });
+  try {
+    const info = await emailTransporter.sendMail(mailOptions);
+    console.log(`[EMAIL] SUCCESS sent to ${email}: ${info.response}`);
+    return { sent: true };
+  } catch (err) {
+    console.error(`[EMAIL] FAILED to ${email}: ${err.message}`);
+    console.error(`[EMAIL] Full error:`, JSON.stringify(err));
+    return { sent: false, error: err.message };
+  }
 }
 
 // --- Vapi Webhook Server ---
