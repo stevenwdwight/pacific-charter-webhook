@@ -187,6 +187,116 @@ async function findNextAvailable({ trip_type, guests, start_from }) {
   };
 }
 
+async function lookupBooking({ customer_name, customer_phone, customer_email, confirmation_code }) {
+  // If we have a confirmation code, look it up directly
+  if (confirmation_code) {
+    // Confirmation codes are like AKSM-210226, but the booking_id is numeric
+    // Search through recent bookings
+    const data = await cfRequest('GET', 'booking?limit=100&order_by=booking_id&order=DESC');
+    const bookings = data?.['booking/index'] || {};
+    for (const [k, b] of Object.entries(bookings)) {
+      if (b.code === confirmation_code.toUpperCase()) {
+        return {
+          found: true,
+          booking_id: b.booking_id,
+          code: b.code,
+          status: b.status_name,
+          customer_name: b.customer_name,
+          customer_email: b.customer_email,
+          total: b.total,
+          date: b.date_desc,
+          trip: b.summary,
+          message: `Found your booking! Code: ${b.code}, ${b.summary} on ${b.date_desc}. Status: ${b.status_name}. Total: $${b.total}.`,
+        };
+      }
+    }
+  }
+
+  // Search by name, phone, or email
+  const searchTerm = (customer_name || customer_phone || customer_email || '').toLowerCase();
+  if (!searchTerm) {
+    return { found: false, error: 'Please provide a name, phone number, email, or confirmation code to look up the booking.' };
+  }
+
+  // Get recent bookings and search
+  const data = await cfRequest('GET', 'booking?limit=100&order_by=booking_id&order=DESC');
+  const bookings = data?.['booking/index'] || {};
+  const matches = [];
+
+  for (const [k, b] of Object.entries(bookings)) {
+    const name = (b.customer_name || '').toLowerCase();
+    const email = (b.customer_email || '').toLowerCase();
+    const phone = (b.customer_phone || '').replace(/\D/g, '');
+    const searchClean = searchTerm.replace(/\D/g, '');
+
+    if (
+      (customer_name && name.includes(customer_name.toLowerCase())) ||
+      (customer_email && email.includes(customer_email.toLowerCase())) ||
+      (customer_phone && phone.includes(searchClean))
+    ) {
+      matches.push({
+        booking_id: b.booking_id,
+        code: b.code,
+        status: b.status_name,
+        customer_name: b.customer_name,
+        customer_email: b.customer_email,
+        total: b.total,
+        date: b.date_desc,
+        trip: b.summary,
+      });
+    }
+  }
+
+  if (matches.length === 0) {
+    return { found: false, message: 'I could not find a booking matching that information. Could you try a different name, phone number, or email?' };
+  }
+
+  if (matches.length === 1) {
+    const b = matches[0];
+    return {
+      found: true,
+      ...b,
+      message: `Found your booking! Code: ${b.code}, ${b.trip} on ${b.date}. Status: ${b.status}. Total: $${b.total}.`,
+    };
+  }
+
+  // Multiple matches
+  const list = matches.map(b => `${b.code}: ${b.trip} on ${b.date} (${b.status})`).join('; ');
+  return {
+    found: true,
+    multiple: true,
+    count: matches.length,
+    bookings: matches,
+    message: `I found ${matches.length} bookings: ${list}. Which one are you looking for?`,
+  };
+}
+
+async function cancelBooking({ booking_id, confirmation_code }) {
+  // Find the booking first if we only have the code
+  if (!booking_id && confirmation_code) {
+    const lookup = await lookupBooking({ confirmation_code });
+    if (!lookup.found) return { success: false, message: 'Could not find that booking to cancel.' };
+    booking_id = lookup.booking_id;
+  }
+
+  if (!booking_id) {
+    return { success: false, message: 'I need a booking to cancel. Please look up the booking first.' };
+  }
+
+  // Update booking status to cancelled
+  const result = await cfRequest('PUT', `booking/${booking_id}`, `status_id=X`);
+
+  if (result?.request?.status === 'OK' || result?.booking) {
+    return {
+      success: true,
+      booking_id,
+      message: `Your booking has been cancelled. If you'd like to rebook in the future, just give us a call anytime.`,
+    };
+  }
+
+  return { success: false, message: 'I had trouble cancelling that booking. Let me transfer you to Captain Curt to help with that.', details: result?.request?.error };
+}
+
 async function checkAvailability({ trip_type, date, guests }) {
   const key = matchTrip(trip_type);
   if (!key) return { available: false, error: `Unknown trip type: ${trip_type}. Available: Lingcod & Rockfish, Offshore Rockfish, Halibut, Halibut & Lingcod Combo, Tuna, Crabbing.` };
@@ -386,6 +496,10 @@ const server = http.createServer(async (req, res) => {
                 result = await checkAvailability(args);
               } else if (fn === 'find_next_available') {
                 result = await findNextAvailable(args);
+              } else if (fn === 'lookup_booking') {
+                result = await lookupBooking(args);
+              } else if (fn === 'cancel_booking') {
+                result = await cancelBooking(args);
               } else if (fn === 'create_booking') {
                 result = await createBooking(args);
               } else {
