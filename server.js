@@ -9,6 +9,16 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
+
+// Email transporter
+const emailTransporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'sdwight2010@gmail.com',
+    pass: 'lalk midz umuv tliu'
+  }
+});
 
 // --- Config ---
 const PORT = process.env.PORT || 3456;
@@ -292,18 +302,61 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
   return { success: false, error: 'Failed to create booking.', details: createResult?.request?.error };
 }
 
-// --- Booking Confirmation Log ---
+// --- Booking Confirmation Email ---
 function sendConfirmationEmail(email, name, code, total, note) {
-  const confirmation = {
-    timestamp: new Date().toISOString(),
-    code, name, email, total, note,
-    status: 'pending_email_setup'
-  };
+  console.log(`Sending confirmation email to ${email} for booking ${code}...`);
   
-  // Log to file — we'll add real email sending once SMTP is configured
-  const logFile = '/Users/stevendwight/.openclaw/workspace/voice-agent/bookings.log';
-  fs.appendFileSync(logFile, JSON.stringify(confirmation) + '\n');
-  console.log(`Booking ${code} confirmed for ${name} (${email}) — $${total}`);
+  const mailOptions = {
+    from: '"Pacific Charter Services" <sdwight2010@gmail.com>',
+    to: email,
+    subject: `Booking Confirmation - ${code} - Pacific Charter Services`,
+    text: `Hi ${name},
+
+Thank you for booking with Pacific Charter Services! Here are your booking details:
+
+CONFIRMATION CODE: ${code}
+Total: $${total}
+
+CHECK-IN LOCATION:
+Pacific Charter Services Office
+63357 Boat Basin Road
+Charleston, Oregon
+Please arrive 30 MINUTES before your scheduled departure time.
+
+WHAT TO BRING:
+- Oregon fishing license (purchase at myodfw.com or local tackle shops)
+- Warm layers and rain gear (it's cold on the ocean!)
+- Sunscreen
+- Lunch, snacks, and drinks
+- Small ice chest (optional)
+
+SEASICKNESS TIP:
+Take Dramamine or Bonine the NIGHT BEFORE and the MORNING OF your trip.
+
+CATCH LIMITS:
+- Rockfish: 4 per angler per day
+- Lingcod: 3 per angler per day
+
+CANCELLATION:
+If you need to cancel or reschedule, please call us at 541-378-3040.
+Weather cancellations are based on ocean conditions (swell and wind) - Captain Curt will contact you if conditions are unsafe.
+
+We look forward to getting you on some fish!
+
+Tight lines,
+Captain Curt Shoults
+Pacific Charter Services
+541-378-3040
+pacificcharterservices.com`
+  };
+
+  emailTransporter.sendMail(mailOptions, (err, info) => {
+    if (err) {
+      console.error('Email send error:', err.message);
+    } else {
+      console.log(`Confirmation email sent to ${email} for booking ${code}`);
+    }
+  });
 }
 
 // --- Vapi Webhook Server ---
