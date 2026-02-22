@@ -11,9 +11,14 @@ const https = require('https');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
 
-// Email transporter
+// Email transporter - use direct SMTP settings with timeout
 const emailTransporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  connectionTimeout: 5000,
+  greetingTimeout: 5000,
+  socketTimeout: 10000,
   auth: {
     user: 'sdwight2010@gmail.com',
     pass: 'eptj aoxi orfq ipwh'
@@ -394,10 +399,10 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
       } catch(e) {}
     }
     
-    // Send confirmation email
-    let emailResult = { sent: false, error: 'no email provided' };
+    // Send confirmation email (non-blocking - don't wait for it)
     if (customer_email) {
-      emailResult = await sendConfirmationEmail(customer_email, customer_name, finalCode, total, note);
+      sendConfirmationEmail(customer_email, customer_name, finalCode, total, note)
+        .catch(e => console.error('[EMAIL] Unhandled:', e.message));
     }
     
     return {
@@ -407,8 +412,6 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
       status: booking.status_name || 'Reserved',
       total: total,
       message: `Booking confirmed! Confirmation code: ${finalCode}. Total: $${total}.`,
-      email_sent: emailResult.sent,
-      email_error: emailResult.error || null,
     };
   }
 
@@ -419,14 +422,6 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
 async function sendConfirmationEmail(email, name, code, total, note) {
   console.log(`[EMAIL] Attempting to send to ${email} for booking ${code}...`);
   
-  // Verify transporter works
-  try {
-    await emailTransporter.verify();
-    console.log('[EMAIL] SMTP connection verified');
-  } catch (verifyErr) {
-    console.error('[EMAIL] SMTP verify FAILED:', verifyErr.message);
-  }
-
   const mailOptions = {
     from: '"Pacific Charter Services" <sdwight2010@gmail.com>',
     to: email,
