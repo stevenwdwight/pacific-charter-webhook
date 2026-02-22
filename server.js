@@ -9,21 +9,7 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const nodemailer = require('nodemailer');
-
-// Email transporter - use direct SMTP settings with timeout
-const emailTransporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  connectionTimeout: 5000,
-  greetingTimeout: 5000,
-  socketTimeout: 10000,
-  auth: {
-    user: 'sdwight2010@gmail.com',
-    pass: 'eptj aoxi orfq ipwh'
-  }
-});
+// Email/SMS will be handled via HTTPS API (Render blocks SMTP)
 
 // --- Config ---
 const PORT = process.env.PORT || 3456;
@@ -399,10 +385,9 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
       } catch(e) {}
     }
     
-    // Send confirmation email (non-blocking - don't wait for it)
+    // Send confirmation
     if (customer_email) {
-      sendConfirmationEmail(customer_email, customer_name, finalCode, total, note)
-        .catch(e => console.error('[EMAIL] Unhandled:', e.message));
+      sendConfirmationEmail(customer_email, customer_name, finalCode, total, note);
     }
     
     return {
@@ -418,63 +403,9 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
   return { success: false, error: 'Failed to create booking.', details: createResult?.request?.error };
 }
 
-// --- Booking Confirmation Email ---
-async function sendConfirmationEmail(email, name, code, total, note) {
-  console.log(`[EMAIL] Attempting to send to ${email} for booking ${code}...`);
-  
-  const mailOptions = {
-    from: '"Pacific Charter Services" <sdwight2010@gmail.com>',
-    to: email,
-    subject: `Booking Confirmation - ${code} - Pacific Charter Services`,
-    text: `Hi ${name},
-
-Thank you for booking with Pacific Charter Services! Here are your booking details:
-
-CONFIRMATION CODE: ${code}
-Total: $${total}
-
-CHECK-IN LOCATION:
-Pacific Charter Services Office
-63357 Boat Basin Road
-Charleston, Oregon
-Please arrive 30 MINUTES before your scheduled departure time.
-
-WHAT TO BRING:
-- Oregon fishing license (purchase at myodfw.com or local tackle shops)
-- Warm layers and rain gear (it's cold on the ocean!)
-- Sunscreen
-- Lunch, snacks, and drinks
-- Small ice chest (optional)
-
-SEASICKNESS TIP:
-Take Dramamine or Bonine the NIGHT BEFORE and the MORNING OF your trip.
-
-CATCH LIMITS:
-- Rockfish: 4 per angler per day
-- Lingcod: 3 per angler per day
-
-CANCELLATION:
-If you need to cancel or reschedule, please call us at 541-378-3040.
-Weather cancellations are based on ocean conditions (swell and wind) - Captain Curt will contact you if conditions are unsafe.
-
-We look forward to getting you on some fish!
-
-Tight lines,
-Captain Curt Shoults
-Pacific Charter Services
-541-378-3040
-pacificcharterservices.com`
-  };
-
-  try {
-    const info = await emailTransporter.sendMail(mailOptions);
-    console.log(`[EMAIL] SUCCESS sent to ${email}: ${info.response}`);
-    return { sent: true };
-  } catch (err) {
-    console.error(`[EMAIL] FAILED to ${email}: ${err.message}`);
-    console.error(`[EMAIL] Full error:`, JSON.stringify(err));
-    return { sent: false, error: err.message };
-  }
+// --- Booking Confirmation (placeholder - Render blocks SMTP) ---
+function sendConfirmationEmail(email, name, code, total, note) {
+  console.log(`[CONFIRM] Booking ${code} for ${name} (${email}) - $${total}`);
 }
 
 // --- Vapi Webhook Server ---
