@@ -9,11 +9,17 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-// Email/SMS will be handled via HTTPS API (Render blocks SMTP)
+// SMS confirmations via Twilio (Render blocks SMTP)
 
 // --- Config ---
 const PORT = process.env.PORT || 3456;
 const CF_HOST = 'pacific-charter-services.manage.na1.bookingplatform.app';
+
+// Twilio config
+const TWILIO_SID = process.env.TWILIO_SID || '';
+const TWILIO_AUTH = process.env.TWILIO_AUTH || '';
+const TWILIO_FROM = process.env.TWILIO_FROM || '';
+const TWILIO_AUTH_B64 = Buffer.from(`${TWILIO_SID}:${TWILIO_AUTH}`).toString('base64');
 const CF_API_KEY = 'b22536d599b19fb4f3bdc1c5301f4c6765b09baf';
 const CF_API_SECRET = 'ae022730cb77fcdcebf4a9f07f548a3fbb75169046873cee8db0b521a73308f9';
 const CF_AUTH = Buffer.from(`${CF_API_KEY}:${CF_API_SECRET}`).toString('base64');
@@ -385,7 +391,10 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
       } catch(e) {}
     }
     
-    // Send confirmation
+    // Send confirmations
+    if (customer_phone) {
+      sendConfirmationSMS(customer_phone, customer_name, finalCode, total);
+    }
     if (customer_email) {
       sendConfirmationEmail(customer_email, customer_name, finalCode, total, note);
     }
@@ -403,7 +412,52 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
   return { success: false, error: 'Failed to create booking.', details: createResult?.request?.error };
 }
 
-// --- Booking Confirmation (placeholder - Render blocks SMTP) ---
+// --- SMS Confirmation via Twilio ---
+function sendConfirmationSMS(phone, name, code, total) {
+  if (!phone) return;
+  // Clean phone number — ensure +1 prefix
+  let to = phone.replace(/\D/g, '');
+  if (to.length === 10) to = '1' + to;
+  if (!to.startsWith('+')) to = '+' + to;
+
+  const firstName = (name || 'there').split(' ')[0];
+  const body = `🎣 Pacific Charter Services — Booking Confirmed!\n\nHey ${firstName}! Your trip is booked.\n\n📋 Confirmation: ${code}\n💰 Total: $${total}\n📍 Check-in: 63357 Boat Basin Road, Charleston, OR — 30 min before departure\n\n✅ What to bring: Layers, sunscreen, snacks/drinks, cooler for your catch\n⚓ All tackle & gear included. Fish cleaning included.\n💊 Seasickness? Take Dramamine the night before AND morning of.\n\nQuestions? Call 541-378-3040\nSee you on the water! 🌊`;
+
+  const postData = `To=${encodeURIComponent(to)}&From=${encodeURIComponent(TWILIO_FROM)}&Body=${encodeURIComponent(body)}`;
+
+  const opts = {
+    hostname: 'api.twilio.com',
+    path: `/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${TWILIO_AUTH_B64}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(postData),
+    },
+  };
+
+  const req = https.request(opts, (res) => {
+    let data = '';
+    res.on('data', (c) => data += c);
+    res.on('end', () => {
+      try {
+        const r = JSON.parse(data);
+        if (r.sid) {
+          console.log(`[SMS] Sent to ${to} — SID: ${r.sid}`);
+        } else {
+          console.error(`[SMS] Error:`, data.slice(0, 300));
+        }
+      } catch(e) {
+        console.error(`[SMS] Parse error:`, data.slice(0, 300));
+      }
+    });
+  });
+  req.on('error', (e) => console.error(`[SMS] Request error:`, e.message));
+  req.write(postData);
+  req.end();
+}
+
+// Legacy email placeholder (kept for logging)
 function sendConfirmationEmail(email, name, code, total, note) {
   console.log(`[CONFIRM] Booking ${code} for ${name} (${email}) - $${total}`);
 }
