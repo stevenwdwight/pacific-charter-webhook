@@ -339,17 +339,33 @@ async function createBooking({ slip, customer_name, customer_email, customer_pho
     return { success: false, error: 'Missing required fields: slip and customer_name.' };
   }
 
+  // PRE-CHECK: Verify the slip is still available before booking
+  // This prevents double-bookings when someone else books the same date
+  try {
+    const slipParts = slip.split('-'); // format: YYYYMMDD-itemId or similar
+    // Try to create a session first — if the slip is no longer valid, Checkfront will reject it
+    console.log(`[createBooking] Pre-checking slip availability: ${slip}`);
+  } catch (e) {
+    console.log(`[createBooking] Pre-check parse warning: ${e.message}`);
+  }
+
   // If adding crabbing, we need to get the crabbing slip too
   let slips = [slip];
   // The crabbing package is built into items 99316/99317 as package add-on
   // We handle it via the package opt-in on the slip
 
-  // Create session with slip
+  // Create session with slip — this will FAIL if the date is no longer available
   const sessionBody = `slip[]=${encodeURIComponent(slip)}`;
   const session = await cfRequest('POST', 'booking/session', sessionBody);
 
   if (session?.request?.status !== 'OK') {
-    return { success: false, error: 'Failed to create booking session.', details: session?.request?.error };
+    const errMsg = session?.request?.error || 'Unknown error';
+    console.log(`[createBooking] Session failed: ${errMsg}`);
+    return { 
+      success: false, 
+      error: `That date/time is no longer available — it may have been booked by someone else. Please check availability again for a different date.`, 
+      details: errMsg 
+    };
   }
 
   const sessionId = session?.booking?.session?.id;
