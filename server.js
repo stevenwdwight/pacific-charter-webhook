@@ -9,7 +9,8 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-// SMS confirmations via Twilio (Render blocks SMTP)
+const nodemailer = require('nodemailer');
+// SMS confirmations via Twilio + Email via Gmail
 
 // --- Config ---
 const PORT = process.env.PORT || 3456;
@@ -473,7 +474,17 @@ function sendConfirmationSMS(phone, name, code, total) {
   req.end();
 }
 
-// --- Email Confirmation via Nodemailer (Gmail SMTP with App Password) ---
+// --- Email Confirmation via Nodemailer (Gmail SMTP port 587 STARTTLS) ---
+const emailTransporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: 'jarvis.bdr@gmail.com',
+    pass: process.env.GMAIL_APP_PASSWORD || 'lyzgcbfklhqtubja',
+  },
+});
+
 function sendConfirmationEmail(email, name, code, total, note) {
   if (!email) return;
   console.log(`[EMAIL] Sending confirmation to ${email} for ${name}, code ${code}`);
@@ -481,7 +492,7 @@ function sendConfirmationEmail(email, name, code, total, note) {
   const firstName = (name || 'there').split(' ')[0];
   
   const subject = `🎣 Pacific Charter Services — Booking Confirmed! (${code})`;
-  const body = [
+  const text = [
     `Hey ${firstName}!`,
     ``,
     `Your fishing trip is booked! Here are the details:`,
@@ -505,62 +516,18 @@ function sendConfirmationEmail(email, name, code, total, note) {
     `— Captain Curt & the Pacific Charter Services crew`,
   ].join('\n');
 
-  // Build raw MIME email
-  const toHeader = email;
-  const fromHeader = 'Pacific Charter Services <jarvis.bdr@gmail.com>';
-  const rawLines = [
-    `From: ${fromHeader}`,
-    `To: ${toHeader}`,
-    `Subject: ${subject}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: text/plain; charset=UTF-8`,
-    ``,
-    body,
-  ];
-  const rawEmail = rawLines.join('\r\n');
-
-  // Use nodemailer-like approach with raw SMTP over TLS
-  const net = require('tls');
-  const sock = net.connect({ host: 'smtp.gmail.com', port: 465 }, () => {
-    let step = 0;
-    let buffer = '';
-    
-    sock.on('data', (chunk) => {
-      buffer += chunk.toString();
-      if (!buffer.includes('\r\n')) return;
-      const lines = buffer.split('\r\n');
-      buffer = lines.pop(); // keep incomplete line
-      
-      for (const line of lines) {
-        console.log(`[SMTP] < ${line}`);
-        if (step === 0 && line.startsWith('220')) {
-          sock.write('EHLO localhost\r\n'); step = 1;
-        } else if (step === 1 && line.startsWith('250') && !line.startsWith('250-')) {
-          // Auth
-          const creds = Buffer.from(`\0jarvis.bdr@gmail.com\0lyzgcbfklhqtubja`).toString('base64');
-          sock.write(`AUTH PLAIN ${creds}\r\n`); step = 2;
-        } else if (step === 2 && line.startsWith('235')) {
-          sock.write(`MAIL FROM:<jarvis.bdr@gmail.com>\r\n`); step = 3;
-        } else if (step === 3 && line.startsWith('250')) {
-          sock.write(`RCPT TO:<${email}>\r\n`); step = 4;
-        } else if (step === 4 && line.startsWith('250')) {
-          sock.write('DATA\r\n'); step = 5;
-        } else if (step === 5 && line.startsWith('354')) {
-          sock.write(rawEmail + '\r\n.\r\n'); step = 6;
-        } else if (step === 6 && line.startsWith('250')) {
-          console.log(`[EMAIL] ✅ Sent to ${email}`);
-          sock.write('QUIT\r\n'); step = 7;
-        } else if (step === 7) {
-          sock.end();
-        }
-      }
-    });
-    
-    sock.on('error', (e) => console.error(`[EMAIL] SMTP error: ${e.message}`));
-    sock.on('end', () => console.log(`[EMAIL] Connection closed`));
+  emailTransporter.sendMail({
+    from: 'Pacific Charter Services <jarvis.bdr@gmail.com>',
+    to: email,
+    subject,
+    text,
+  }, (err, info) => {
+    if (err) {
+      console.error(`[EMAIL] ❌ Failed to send to ${email}: ${err.message}`);
+    } else {
+      console.log(`[EMAIL] ✅ Sent to ${email} — messageId: ${info.messageId}`);
+    }
   });
-  
-  sock.on('error', (e) => console.error(`[EMAIL] Connection error: ${e.message}`));
 }
 
 // --- Vapi Webhook Server ---
