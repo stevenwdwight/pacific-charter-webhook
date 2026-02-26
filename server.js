@@ -473,9 +473,94 @@ function sendConfirmationSMS(phone, name, code, total) {
   req.end();
 }
 
-// Legacy email placeholder (kept for logging)
+// --- Email Confirmation via Nodemailer (Gmail SMTP with App Password) ---
 function sendConfirmationEmail(email, name, code, total, note) {
-  console.log(`[CONFIRM] Booking ${code} for ${name} (${email}) - $${total}`);
+  if (!email) return;
+  console.log(`[EMAIL] Sending confirmation to ${email} for ${name}, code ${code}`);
+  
+  const firstName = (name || 'there').split(' ')[0];
+  
+  const subject = `🎣 Pacific Charter Services — Booking Confirmed! (${code})`;
+  const body = [
+    `Hey ${firstName}!`,
+    ``,
+    `Your fishing trip is booked! Here are the details:`,
+    ``,
+    `📋 Confirmation Code: ${code}`,
+    `💰 Total: $${total}`,
+    `📍 Check-in: 63357 Boat Basin Road, Charleston, OR — 30 minutes before departure`,
+    ``,
+    `✅ What to bring:`,
+    `• Layers (it gets chilly on the water)`,
+    `• Sunscreen`,
+    `• Snacks & drinks`,
+    `• Cooler for your catch`,
+    ``,
+    `⚓ All tackle & gear included. Fish cleaning included.`,
+    `💊 Seasickness tip: Take Dramamine the night before AND morning of your trip.`,
+    ``,
+    `Questions? Call us at 541-378-3040`,
+    ``,
+    `See you on the water! 🌊`,
+    `— Captain Curt & the Pacific Charter Services crew`,
+  ].join('\n');
+
+  // Build raw MIME email
+  const toHeader = email;
+  const fromHeader = 'Pacific Charter Services <jarvis.bdr@gmail.com>';
+  const rawLines = [
+    `From: ${fromHeader}`,
+    `To: ${toHeader}`,
+    `Subject: ${subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    ``,
+    body,
+  ];
+  const rawEmail = rawLines.join('\r\n');
+
+  // Use nodemailer-like approach with raw SMTP over TLS
+  const net = require('tls');
+  const sock = net.connect({ host: 'smtp.gmail.com', port: 465 }, () => {
+    let step = 0;
+    let buffer = '';
+    
+    sock.on('data', (chunk) => {
+      buffer += chunk.toString();
+      if (!buffer.includes('\r\n')) return;
+      const lines = buffer.split('\r\n');
+      buffer = lines.pop(); // keep incomplete line
+      
+      for (const line of lines) {
+        console.log(`[SMTP] < ${line}`);
+        if (step === 0 && line.startsWith('220')) {
+          sock.write('EHLO localhost\r\n'); step = 1;
+        } else if (step === 1 && line.startsWith('250') && !line.startsWith('250-')) {
+          // Auth
+          const creds = Buffer.from(`\0jarvis.bdr@gmail.com\0lyzgcbfklhqtubja`).toString('base64');
+          sock.write(`AUTH PLAIN ${creds}\r\n`); step = 2;
+        } else if (step === 2 && line.startsWith('235')) {
+          sock.write(`MAIL FROM:<jarvis.bdr@gmail.com>\r\n`); step = 3;
+        } else if (step === 3 && line.startsWith('250')) {
+          sock.write(`RCPT TO:<${email}>\r\n`); step = 4;
+        } else if (step === 4 && line.startsWith('250')) {
+          sock.write('DATA\r\n'); step = 5;
+        } else if (step === 5 && line.startsWith('354')) {
+          sock.write(rawEmail + '\r\n.\r\n'); step = 6;
+        } else if (step === 6 && line.startsWith('250')) {
+          console.log(`[EMAIL] ✅ Sent to ${email}`);
+          sock.write('QUIT\r\n'); step = 7;
+        } else if (step === 7) {
+          sock.end();
+        }
+      }
+    });
+    
+    sock.on('error', (e) => console.error(`[EMAIL] SMTP error: ${e.message}`));
+    sock.on('end', () => console.log(`[EMAIL] Connection closed`));
+  });
+  
+  sock.on('error', (e) => console.error(`[EMAIL] Connection error: ${e.message}`));
 }
 
 // --- Vapi Webhook Server ---
