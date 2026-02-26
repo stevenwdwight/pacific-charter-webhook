@@ -474,60 +474,68 @@ function sendConfirmationSMS(phone, name, code, total) {
   req.end();
 }
 
-// --- Email Confirmation via Nodemailer (Gmail SMTP port 587 STARTTLS) ---
-const emailTransporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: 'jarvis.bdr@gmail.com',
-    pass: process.env.GMAIL_APP_PASSWORD || 'lyzgcbfklhqtubja',
-  },
-});
-
+// --- Email Confirmation via Gmail SMTP (nodemailer, port 465 SSL) ---
+// Render paid plan should allow port 465. Fallback to 587 if needed.
 function sendConfirmationEmail(email, name, code, total, note) {
   if (!email) return;
   console.log(`[EMAIL] Sending confirmation to ${email} for ${name}, code ${code}`);
   
   const firstName = (name || 'there').split(' ')[0];
   
-  const subject = `🎣 Pacific Charter Services — Booking Confirmed! (${code})`;
+  const subject = `Pacific Charter Services - Booking Confirmed! (${code})`;
   const text = [
     `Hey ${firstName}!`,
     ``,
     `Your fishing trip is booked! Here are the details:`,
     ``,
-    `📋 Confirmation Code: ${code}`,
-    `💰 Total: $${total}`,
-    `📍 Check-in: 63357 Boat Basin Road, Charleston, OR — 30 minutes before departure`,
+    `Confirmation Code: ${code}`,
+    `Total: $${total}`,
+    `Check-in: 63357 Boat Basin Road, Charleston, OR - 30 minutes before departure`,
     ``,
-    `✅ What to bring:`,
-    `• Layers (it gets chilly on the water)`,
-    `• Sunscreen`,
-    `• Snacks & drinks`,
-    `• Cooler for your catch`,
+    `What to bring:`,
+    `- Layers (it gets chilly on the water)`,
+    `- Sunscreen`,
+    `- Snacks & drinks`,
+    `- Cooler for your catch`,
     ``,
-    `⚓ All tackle & gear included. Fish cleaning included.`,
-    `💊 Seasickness tip: Take Dramamine the night before AND morning of your trip.`,
+    `All tackle & gear included. Fish cleaning included.`,
     ``,
     `Questions? Call us at 541-378-3040`,
     ``,
-    `See you on the water! 🌊`,
-    `— Captain Curt & the Pacific Charter Services crew`,
+    `See you on the water!`,
+    `- Captain Curt & the Pacific Charter Services crew`,
   ].join('\n');
 
-  emailTransporter.sendMail({
-    from: 'Pacific Charter Services <jarvis.bdr@gmail.com>',
-    to: email,
-    subject,
-    text,
-  }, (err, info) => {
-    if (err) {
-      console.error(`[EMAIL] ❌ Failed to send to ${email}: ${err.message}`);
-    } else {
-      console.log(`[EMAIL] ✅ Sent to ${email} — messageId: ${info.messageId}`);
-    }
-  });
+  // Try port 465 first, then 587
+  const tryPort = (port, secure) => {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port,
+      secure,
+      auth: { user: 'jarvis.bdr@gmail.com', pass: 'lyzgcbfklhqtubja' },
+      connectionTimeout: 10000,
+    });
+    
+    return transporter.sendMail({
+      from: 'Pacific Charter Services <jarvis.bdr@gmail.com>',
+      to: email,
+      subject,
+      text,
+    });
+  };
+
+  tryPort(465, true)
+    .then(info => console.log(`[EMAIL] ✅ Sent via 465 to ${email} — ${info.messageId}`))
+    .catch(err465 => {
+      console.error(`[EMAIL] Port 465 failed: ${err465.message}. Trying 587...`);
+      tryPort(587, false)
+        .then(info => console.log(`[EMAIL] ✅ Sent via 587 to ${email} — ${info.messageId}`))
+        .catch(err587 => {
+          console.error(`[EMAIL] ❌ Both ports failed for ${email}. 465: ${err465.message}, 587: ${err587.message}`);
+          // Last resort: log for manual follow-up
+          console.log(`[EMAIL-FAILED] TO=${email} NAME=${name} CODE=${code} TOTAL=${total}`);
+        });
+    });
 }
 
 // --- Vapi Webhook Server ---
